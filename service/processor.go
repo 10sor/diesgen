@@ -8,12 +8,15 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tealeg/xlsx"
 	"os"
-	"time"
+	"slices"
 )
 
 func Process(configPath string, xlsxFile string) {
+	log.Infof("START processing conf: %s, xlsx: %s", configPath, xlsxFile)
+
 	c, err := config.GetConfig(configPath)
 	if err != nil {
+		log.Error(err)
 		return
 	}
 
@@ -29,11 +32,16 @@ func Process(configPath string, xlsxFile string) {
 		return
 	}
 
-	s, err := api.GetStatementForLast(c.XToken, 72*time.Hour, *j)
+	s, err := api.GetStatementFromToNow(c.XToken, *j, c.JarStart)
 	if err != nil {
 		log.Error(err)
 		return
 	}
+
+	// remove withdrawals
+	s = slices.DeleteFunc(s, func(transaction api.Transaction) bool {
+		return transaction.Amount < 0
+	})
 
 	file, err := xlsx.OpenFile(xlsxFile)
 	if err != nil {
@@ -52,9 +60,16 @@ func Process(configPath string, xlsxFile string) {
 		return
 	}
 
+	err = exel.SortMainTable(file, configPath)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
 	err = file.Save(xlsxFile)
 	if err != nil {
 		log.Error(err)
 		return
 	}
+	log.Infof("FINISH processing conf: %s, xlsx: %s", configPath, xlsxFile)
 }
