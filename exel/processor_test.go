@@ -51,7 +51,7 @@ func TestProcessStatementNewSheet(t *testing.T) {
 		})
 	}
 
-	err := config.SetConfig(confPath, config.Config{})
+	err := config.SetConfig(confPath, config.Config{JarStart: "2024-06-25 11:00:00 +0300 EEST"})
 	require.NoError(t, err)
 
 	file := xlsx.NewFile()
@@ -100,7 +100,7 @@ func TestProcessStatementExistingSheet(t *testing.T) {
 			Amount:  i * 1000,
 		})
 	}
-	err := config.SetConfig(confPath, config.Config{})
+	err := config.SetConfig(confPath, config.Config{JarStart: "2024-06-25 11:00:00 +0300 EEST"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,11 +186,13 @@ func TestProcessStatementInvalidComments(t *testing.T) {
 		Amount:  130_000,
 	})
 
-	err := config.SetConfig(confPath, config.Config{})
+	err := config.SetConfig(confPath, config.Config{JarStart: "2024-06-25 11:00:00 +0300 EEST"})
 	require.NoError(t, err)
 
 	file := xlsx.NewFile()
 	err = ProcessStatement(file, tra, confPath)
+	require.NoError(t, err)
+	err = SortMainTable(file, confPath)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, len(file.Sheet))
@@ -199,17 +201,110 @@ func TestProcessStatementInvalidComments(t *testing.T) {
 		rows := sheet.Rows[1:]
 		require.Equal(t, len(tra)-1, len(rows))
 
-		assert.Equal(t, "24", rows[0].Cells[0].Value)
-		assert.Equal(t, "1000", rows[0].Cells[1].Value)
-		assert.Equal(t, "10", rows[0].Cells[2].Value)
+		firstRowCells := rows[0].Cells
+		assert.Equal(t, "0", firstRowCells[flatIndex].Value)
+		assert.Equal(t, "2400", firstRowCells[amountIndex].Value)
+		assert.Equal(t, "11,14", firstRowCells[transactionIndex].Value)
 
-		assert.Equal(t, "0", rows[1].Cells[0].Value)
-		assert.Equal(t, "2400", rows[1].Cells[1].Value)
-		assert.Equal(t, "11,14", rows[1].Cells[2].Value)
+		secondRowCells := rows[1].Cells
+		assert.Equal(t, "24", secondRowCells[flatIndex].Value)
+		assert.Equal(t, "1000", secondRowCells[amountIndex].Value)
+		assert.Equal(t, "10", secondRowCells[transactionIndex].Value)
 
-		assert.Equal(t, "144", rows[2].Cells[0].Value)
-		assert.Equal(t, "1200", rows[2].Cells[1].Value)
-		assert.Equal(t, "12", rows[2].Cells[2].Value)
+		thirdRowCells := rows[2].Cells
+		assert.Equal(t, "144", thirdRowCells[flatIndex].Value)
+		assert.Equal(t, "1200", thirdRowCells[amountIndex].Value)
+		assert.Equal(t, "12", thirdRowCells[transactionIndex].Value)
+	}
+
+	c, err := config.GetConfig(confPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, len(c.Exclusions))
+	_ = file.Save(`C:\Users\alexm\Documents\private\logs\test\text.xlsx`)
+}
+
+func TestExclusions(t *testing.T) {
+	// prepare
+
+	const confName = "conf.json"
+
+	confDir := t.TempDir()
+	confPath := filepath.Join(confDir, confName)
+
+	var tra []api.Transaction
+	tra = append(tra, api.Transaction{
+		ID:      "10",
+		Comment: "24 4441166661984104",
+		Amount:  100_000,
+	})
+	tra = append(tra, api.Transaction{
+		ID:      "11",
+		Comment: "",
+		Amount:  110_000,
+	})
+	tra = append(tra, api.Transaction{
+		ID:      "12",
+		Comment: "144",
+		Amount:  120_000,
+	})
+	tra = append(tra, api.Transaction{
+		ID:      "14",
+		Comment: "",
+		Amount:  130_000,
+	})
+
+	err := config.SetConfig(confPath, config.Config{JarStart: "2024-06-25 11:00:00 +0300 EEST"})
+	require.NoError(t, err)
+
+	file := xlsx.NewFile()
+	err = ProcessStatement(file, tra, confPath)
+	require.NoError(t, err)
+	err = SortMainTable(file, confPath)
+	require.NoError(t, err)
+
+	// test
+
+	err = config.SetConfig(
+		confPath,
+		config.Config{
+			XToken:   "",
+			JarName:  "",
+			JarStart: "2024-06-25 11:00:00 +0300 EEST",
+			Exclusions: []config.Exclusion{{
+				Card:          "",
+				Flat:          144,
+				Comment:       "",
+				TransactionID: "11",
+				Amount:        0,
+			}},
+		},
+	)
+	require.NoError(t, err)
+
+	err = ProcessStatement(file, tra, confPath)
+	require.NoError(t, err)
+	err = SortMainTable(file, confPath)
+	require.NoError(t, err)
+
+	for _, sheet := range file.Sheet {
+		rows := sheet.Rows[1:]
+		require.Equal(t, len(tra)-1, len(rows))
+
+		firstRowCells := rows[0].Cells
+		assert.Equal(t, "0", firstRowCells[flatIndex].Value)
+		assert.Equal(t, "1300", firstRowCells[amountIndex].Value)
+		assert.Equal(t, "14", firstRowCells[transactionIndex].Value)
+
+		secondRowCells := rows[1].Cells
+		assert.Equal(t, "24", secondRowCells[flatIndex].Value)
+		assert.Equal(t, "1000", secondRowCells[amountIndex].Value)
+		assert.Equal(t, "10", secondRowCells[transactionIndex].Value)
+
+		thirdRowCells := rows[2].Cells
+		assert.Equal(t, "144", thirdRowCells[flatIndex].Value)
+		assert.Equal(t, "2300", thirdRowCells[amountIndex].Value)
+		assert.Equal(t, "12,11", thirdRowCells[transactionIndex].Value)
 	}
 
 	c, err := config.GetConfig(confPath)

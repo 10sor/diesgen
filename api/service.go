@@ -83,12 +83,11 @@ func GetStatement(xToken string, accountId string, from time.Time, to time.Time)
 	return transactions, nil
 }
 
-func GetStatementForLast(xToken string, d time.Duration, j Jar) ([]Transaction, error) {
-	now := time.Now()
-	dayBefore := now.Add(-d)
-	statement, err := GetStatement(xToken, j.ID, dayBefore, now)
+func GetStatementFromToNow(xToken string, j Jar, from string) ([]Transaction, error) {
+	layout := "2006-01-02 15:04:05 -0700 MST"
+	t, err := time.Parse(layout, from)
 	if err != nil {
 		return nil, err
 	}
-	return statement, nil
+	return GetStatement(xToken, j.ID, t, time.Now())
 }

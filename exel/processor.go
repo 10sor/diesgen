@@ -1,6 +1,7 @@
 package exel
 
 import (
+	"cmp"
 	"diesgen/api"
 	"diesgen/config"
 	"errors"
@@ -20,19 +21,29 @@ type FlatAndCard struct {
 	Flat int
 }
 
+const flatIndex = 0
+const amountIndex = 1
+const transactionIndex = 2
+
 func ProcessStatement(file *xlsx.File, statement []api.Transaction, confPath string) error {
-	sheet, err := getSheet(file, sheetName())
+	sname, err := sheetName(confPath)
 	if err != nil {
 		return err
 	}
 
-	flatIndex := getFlatToCellIndexMap(sheet)
+	sheet, err := getSheet(file, sname)
+	if err != nil {
+		return err
+	}
+
+	flatIndexMap := getFlatToCellIndexMap(sheet)
 
 	for _, transaction := range statement {
-		pair, err := flatAndCard(transaction.Comment)
+		transactionPair, err := flatAndCard(transaction.Comment)
 
+		var exclusionPair *FlatAndCard
 		if err != nil {
-			pair, err = processFlatAndCardErr(confPath, transaction)
+			exclusionPair, err = processFlatAndCardErr(confPath, transaction)
 			if err != nil {
 				return err
 			}
@@ -40,36 +51,107 @@ func ProcessStatement(file *xlsx.File, statement []api.Transaction, confPath str
 
 		// the case when statement contains already saved transactions
 		if transactionIDExists(sheet, transaction.ID) {
-			continue
+			if (transactionPair == nil || transactionPair.Flat == 0) &&
+				(exclusionPair != nil && exclusionPair.Flat != 0) {
+				updateUnknownTransactions(sheet, transaction)
+			} else {
+				continue
+			}
 		}
 
-		updateSheet(sheet, flatIndex, transaction, pair)
+		if transactionPair == nil {
+			transactionPair = exclusionPair
+		}
+
+		updateSheet(sheet, flatIndexMap, transaction, transactionPair)
 	}
 
 	return nil
 }
 
-func sheetName() string {
-	now := time.Now().Local()
-	name := fmt.Sprintf("%s %d", now.Month(), now.Year())
-	return name
+func SortMainTable(file *xlsx.File, confPath string) error {
+	sname, err := sheetName(confPath)
+	if err != nil {
+		return err
+	}
+
+	sheet, err := getSheet(file, sname)
+	if err != nil {
+		return err
+	}
+
+	slices.SortFunc(sheet.Rows, func(a, b *xlsx.Row) int {
+		aFlat, err := a.Cells[flatIndex].Int()
+		if err != nil {
+			return 0
+		}
+		bFlat, err := b.Cells[flatIndex].Int()
+		if err != nil {
+			return 0
+		}
+
+		return cmp.Compare(aFlat, bFlat)
+	})
+	return nil
 }
 
-func updateSheet(sheet *xlsx.Sheet, flatIndex map[int]int, transaction api.Transaction, pair *FlatAndCard) {
+func updateUnknownTransactions(sheet *xlsx.Sheet, tr api.Transaction) {
+	for _, row := range sheet.Rows {
+		s := row.Cells[transactionIndex].String()
+		transactions := strings.Split(s, ",")
+		if !slices.Contains(transactions, tr.ID) {
+			continue
+		}
+
+		if flat, _ := row.Cells[flatIndex].Int(); flat != 0 {
+			continue
+		}
+
+		updatedTransactions := slices.DeleteFunc(transactions, func(s string) bool {
+			return s == tr.ID
+		})
+
+		row.Cells[transactionIndex].SetString(strings.Join(updatedTransactions, ","))
+		amount, _ := row.Cells[amountIndex].Int()
+		row.Cells[amountIndex].SetInt(amount - (tr.Amount / 100))
+	}
+}
+
+func sheetName(confPath string) (string, error) {
+	c, err := config.GetConfig(confPath)
+	if err != nil {
+		return "", err
+	}
+
+	if c.JarStart == "" {
+		return "", errors.New("invalid sheet name")
+	}
+
+	layout := "2006-01-02 15:04:05 -0700 MST"
+	t, err := time.Parse(layout, c.JarStart)
+	if err != nil {
+		return "", err
+	}
+
+	outputLayout := "2006-01-02"
+	return t.Format(outputLayout), nil
+}
+
+func updateSheet(sheet *xlsx.Sheet, flatIndexMap map[int]int, transaction api.Transaction, pair *FlatAndCard) {
 	transactionAmount := float64(transaction.Amount / 100)
 
-	if rowIndex, found := flatIndex[pair.Flat]; found {
+	if rowIndex, found := flatIndexMap[pair.Flat]; found {
 		// Update existing row
 		currentAmount, _ := strconv.ParseFloat(sheet.Rows[rowIndex].Cells[1].String(), 64)
-		sheet.Rows[rowIndex].Cells[1].SetInt(int(math.Floor(currentAmount) + math.Floor(transactionAmount)))
-		sheet.Rows[rowIndex].Cells[2].Value += "," + transaction.ID
+		sheet.Rows[rowIndex].Cells[amountIndex].SetInt(int(math.Floor(currentAmount) + math.Floor(transactionAmount)))
+		sheet.Rows[rowIndex].Cells[transactionIndex].Value += "," + transaction.ID
 	} else {
 		// Add new row
 		row := sheet.AddRow()
 		row.AddCell().SetInt(pair.Flat)
 		row.AddCell().SetInt(int(math.Floor(transactionAmount)))
 		row.AddCell().Value = transaction.ID
-		flatIndex[pair.Flat] = sheet.MaxRow - 1
+		flatIndexMap[pair.Flat] = sheet.MaxRow - 1
 	}
 }
 
@@ -182,10 +264,7 @@ func flatAndCard(s string) (*FlatAndCard, error) {
 
 func transactionIDExists(sheet *xlsx.Sheet, transactionID string) bool {
 	for _, row := range sheet.Rows {
-		if len(row.Cells) < 3 {
-			continue
-		}
-		s := row.Cells[2].String()
+		s := row.Cells[transactionIndex].String()
 		transactions := strings.Split(s, ",")
 		if slices.Contains(transactions, transactionID) {
 			return true

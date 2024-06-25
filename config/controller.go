@@ -17,6 +17,7 @@ type Exclusion struct {
 type Config struct {
 	XToken     string      `json:"xToken"`
 	JarName    string      `json:"jarName"`
+	JarStart   string      `json:"jarStart"`
 	Exclusions []Exclusion `json:"exclusions"`
 }
 

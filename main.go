@@ -38,7 +38,7 @@ func main() {
 		Compress:   true, // Compress rotated files
 	}
 
-	log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	log.SetOutput(io.MultiWriter(logFile))
 	log.SetReportCaller(true)
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
@@ -61,6 +61,7 @@ func main() {
 
 	run := svc.Run
 	if !inService {
+		log.SetOutput(os.Stdout)
 		log.Info("Starting in debug mode")
 		run = debug.Run
 	} else {
