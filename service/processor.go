@@ -66,6 +66,12 @@ func Process(configPath string, xlsxFile string) {
 		return
 	}
 
+	err = exel.CleanZeroAmountValues(file, configPath)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
 	err = file.Save(xlsxFile)
 	if err != nil {
 		log.Error(err)

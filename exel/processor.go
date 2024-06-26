@@ -54,7 +54,9 @@ func ProcessStatement(file *xlsx.File, statement []api.Transaction, confPath str
 			if (transactionPair == nil || transactionPair.Flat == 0) &&
 				(exclusionPair != nil && exclusionPair.Flat != 0) {
 				updateUnknownTransactions(sheet, transaction)
-			} else {
+			}
+
+			if transactionIDExists(sheet, transaction.ID) {
 				continue
 			}
 		}
@@ -83,11 +85,11 @@ func SortMainTable(file *xlsx.File, confPath string) error {
 	slices.SortFunc(sheet.Rows, func(a, b *xlsx.Row) int {
 		aFlat, err := a.Cells[flatIndex].Int()
 		if err != nil {
-			return 0
+			return -1
 		}
 		bFlat, err := b.Cells[flatIndex].Int()
 		if err != nil {
-			return 0
+			return 1
 		}
 
 		return cmp.Compare(aFlat, bFlat)
@@ -95,7 +97,39 @@ func SortMainTable(file *xlsx.File, confPath string) error {
 	return nil
 }
 
-func updateUnknownTransactions(sheet *xlsx.Sheet, tr api.Transaction) {
+func CleanZeroAmountValues(file *xlsx.File, confPath string) error {
+	sname, err := sheetName(confPath)
+	if err != nil {
+		return err
+	}
+
+	sheet, err := getSheet(file, sname)
+	if err != nil {
+		return err
+	}
+
+	if len(sheet.Rows) < 2 {
+		return nil
+	}
+
+	zeroFlatRaw := sheet.Rows[1]
+	if zeroFlatRaw == nil {
+		return nil
+	}
+
+	if v, err := zeroFlatRaw.Cells[flatIndex].Int(); err != nil || v != 0 {
+		return nil
+	}
+
+	if v, err := zeroFlatRaw.Cells[amountIndex].Int(); err != nil || v != 0 {
+		return nil
+	}
+
+	sheet.Rows = append(sheet.Rows[:1], sheet.Rows[2:]...)
+	return nil
+}
+
+func updateUnknownTransactions(sheet *xlsx.Sheet, tr api.Transaction) (updated bool) {
 	for _, row := range sheet.Rows {
 		s := row.Cells[transactionIndex].String()
 		transactions := strings.Split(s, ",")
@@ -115,6 +149,8 @@ func updateUnknownTransactions(sheet *xlsx.Sheet, tr api.Transaction) {
 		amount, _ := row.Cells[amountIndex].Int()
 		row.Cells[amountIndex].SetInt(amount - (tr.Amount / 100))
 	}
+
+	return false
 }
 
 func sheetName(confPath string) (string, error) {
