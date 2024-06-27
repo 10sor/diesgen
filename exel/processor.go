@@ -202,7 +202,10 @@ func processFlatAndCardErr(confPath string, transaction api.Transaction) (*FlatA
 		return pair, nil
 	}
 
-	log.Errorf("invalid comment: %s tr: %s", transaction.Comment, transaction.ID)
+	log.Errorf("invalid comment: %s tr: %s, amount: %d",
+		transaction.Comment,
+		transaction.ID,
+		transaction.Amount/100)
 
 	e := config.Exclusion{Card: "Unknown",
 		Comment:       transaction.Comment,
