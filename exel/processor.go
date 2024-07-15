@@ -47,6 +47,11 @@ func ProcessStatement(file *xlsx.File, statement []api.Transaction, confPath str
 			if err != nil {
 				return err
 			}
+		} else {
+			exclusionPair, err = checkForExclusion(confPath, transaction)
+			if err == nil {
+				transactionPair = exclusionPair
+			}
 		}
 
 		// the case when statement contains already saved transactions
@@ -220,6 +225,20 @@ func processFlatAndCardErr(confPath string, transaction api.Transaction) (*FlatA
 	pair.Flat = e.Flat
 
 	return pair, nil
+}
+
+func checkForExclusion(confPath string, transaction api.Transaction) (*FlatAndCard, error) {
+	c, err := config.GetConfig(confPath)
+	if err != nil {
+		return nil, err
+	}
+
+	pair, ok := getExclusion(c.Exclusions, transaction)
+	if ok {
+		return pair, nil
+	}
+
+	return nil, fmt.Errorf("exclusion not found")
 }
 
 func getExclusion(exclusions []config.Exclusion, transaction api.Transaction) (*FlatAndCard, bool) {
