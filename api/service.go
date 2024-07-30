@@ -89,5 +89,12 @@ func GetStatementFromToNow(xToken string, j Jar, from string) ([]Transaction, er
 	if err != nil {
 		return nil, err
 	}
+
+	now := time.Now()
+	maxDate := now.AddDate(0, 0, -30)
+	if t.Before(maxDate) {
+		t = maxDate
+	}
+
 	return GetStatement(xToken, j.ID, t, time.Now())
 }
